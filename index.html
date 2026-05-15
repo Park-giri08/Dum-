@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>덤(Dum) — 내 주변 혜택 식당</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #FF5722;
+      --primary-light: #FFF3E0;
+      --primary-dark: #E64A19;
+      --bg: #F5F5F5;
+      --card-bg: #FFFFFF;
+      --text-primary: #1A1A1A;
+      --text-secondary: #757575;
+      --text-muted: #BDBDBD;
+      --border: #EEEEEE;
+      --success: #4CAF50;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --shadow-sm: 0 1px 4px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 16px rgba(0,0,0,0.12);
+      --header-h: 56px;
+      --nav-h: 64px;
+    }
+
+    html, body { height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', 'Apple SD Gothic Neo', sans-serif; background: #CCC; }
+
+    #app {
+      position: relative;
+      width: 100%; max-width: 430px; height: 100vh;
+      margin: 0 auto; background: var(--bg);
+      overflow: hidden; display: flex; flex-direction: column;
+      box-shadow: 0 0 40px rgba(0,0,0,0.2);
+    }
+
+    /* ── Header ── */
+    header {
+      flex-shrink: 0; height: var(--header-h); background: #fff;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 16px; border-bottom: 1px solid var(--border); z-index: 100;
+    }
+    .app-logo { font-size: 24px; font-weight: 900; color: var(--primary); letter-spacing: -1px; display: flex; align-items: baseline; gap: 4px; }
+    .app-logo .logo-en { font-size: 13px; font-weight: 700; color: var(--text-muted); letter-spacing: 1px; }
+    .location-badge {
+      display: flex; align-items: center; gap: 4px;
+      background: var(--primary-light); border-radius: 20px;
+      padding: 6px 12px; font-size: 13px; font-weight: 600; color: var(--primary-dark);
+    }
+
+    /* ── Main ── */
+    /* z-index: 1 creates a stacking context that isolates Leaflet's internal
+       z-indices (600+) so they don't bleed above app-level elements */
+    main { flex: 1; overflow: hidden; position: relative; z-index: 1; }
+    .view { position: absolute; inset: 0; overflow-y: auto; display: none; }
+    .view.active { display: block; }
+    #view-map { overflow: hidden; }
+    #map { width: 100%; height: 100%; }
+
+    /* ── Map Markers ── */
+    .mk-wrap { display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.22)); }
+    .mk-circle {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: #fff; border: 2.5px solid var(--primary);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; transition: transform 0.15s;
+    }
+    .mk-wrap:hover .mk-circle { transform: scale(1.1); }
+    .mk-pin { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--primary); margin-top: -1px; }
+    .mk-label { background: var(--primary); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 3px; white-space: nowrap; }
+
+    /* ── List View ── */
+    #view-list { background: var(--bg); }
+    .filter-row { display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto; scrollbar-width: none; background: #fff; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+    .filter-row::-webkit-scrollbar { display: none; }
+    .filter-chip { flex-shrink: 0; padding: 7px 15px; border-radius: 20px; font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); background: #fff; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; -webkit-tap-highlight-color: transparent; }
+    .filter-chip.active { border-color: var(--primary); background: var(--primary); color: #fff; }
+    .restaurant-list { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
+    .restaurant-card { background: var(--card-bg); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.15s; }
+    .restaurant-card:active { transform: scale(0.98); }
+    .card-img { width: 100%; height: 170px; object-fit: cover; display: block; background: #F0F0F0; }
+    .card-body { padding: 14px 16px 16px; }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px; }
+    .card-name { font-size: 17px; font-weight: 700; color: var(--text-primary); }
+    .card-distance { font-size: 12px; color: var(--text-secondary); font-weight: 600; background: var(--bg); padding: 3px 9px; border-radius: 10px; flex-shrink: 0; }
+    .card-meta { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+    .card-benefits { display: flex; gap: 6px; flex-wrap: wrap; }
+    .benefit-tag { display: flex; align-items: center; gap: 4px; background: var(--primary-light); color: var(--primary-dark); border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+
+    /* ── Profile ── */
+    #view-profile { background: var(--bg); }
+    .auth-wrap { display: flex; flex-direction: column; align-items: center; padding: 40px 24px 24px; }
+    .auth-illust { font-size: 64px; margin-bottom: 16px; }
+    .auth-title { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px; }
+    .auth-subtitle { font-size: 14px; color: var(--text-secondary); text-align: center; line-height: 1.6; margin-bottom: 28px; }
+    .auth-form { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+    .auth-input { width: 100%; height: 48px; border: 1.5px solid var(--border); border-radius: var(--radius-md); padding: 0 14px; font-size: 15px; color: var(--text-primary); outline: none; transition: border-color 0.2s; }
+    .auth-input:focus { border-color: var(--primary); }
+    .auth-btn-primary { width: 100%; height: 50px; border-radius: var(--radius-md); background: var(--primary); color: #fff; font-size: 16px; font-weight: 700; border: none; cursor: pointer; margin-top: 4px; }
+    .auth-btn-secondary { width: 100%; height: 50px; border-radius: var(--radius-md); background: #fff; color: var(--text-secondary); font-size: 15px; font-weight: 600; border: 1.5px solid var(--border); cursor: pointer; }
+    .auth-divider { font-size: 13px; color: var(--text-muted); text-align: center; margin: 4px 0; }
+    .auth-switch-row { display: flex; justify-content: center; gap: 4px; margin-top: 14px; }
+    .auth-switch-link { font-size: 13px; color: var(--primary); font-weight: 600; background: none; border: none; cursor: pointer; text-decoration: underline; }
+    .auth-switch-label { font-size: 13px; color: var(--text-secondary); }
+    .profile-header { background: #fff; padding: 24px 16px 20px; border-bottom: 1px solid var(--border); }
+    .profile-user { display: flex; align-items: center; gap: 14px; }
+    .avatar { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, var(--primary) 0%, #FF8F00 100%); display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; }
+    .user-info h2 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+    .user-info p { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+    .logout-btn { margin-left: auto; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: var(--bg); border: 1px solid var(--border); cursor: pointer; }
+    .stats-row { display: flex; margin-top: 20px; background: var(--bg); border-radius: var(--radius-md); overflow: hidden; }
+    .stat-item { flex: 1; padding: 14px 0; text-align: center; }
+    .stat-item + .stat-item { border-left: 1px solid var(--border); }
+    .stat-value { font-size: 22px; font-weight: 900; color: var(--primary); }
+    .stat-label { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+    .history-section { padding: 20px 16px 24px; }
+    .section-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; }
+    .history-empty { text-align: center; padding: 56px 0; color: var(--text-muted); font-size: 14px; line-height: 1.7; }
+    .history-empty .empty-icon { font-size: 52px; display: block; margin-bottom: 14px; }
+    .history-card { background: #fff; border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow-sm); display: flex; gap: 12px; align-items: center; }
+    .history-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--primary-light); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+    .history-info { flex: 1; min-width: 0; }
+    .history-menu { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+    .history-restaurant { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+    .history-right { text-align: right; flex-shrink: 0; }
+    .history-date { font-size: 11px; color: var(--text-muted); }
+    .history-badge { display: inline-block; margin-top: 5px; background: #E8F5E9; color: var(--success); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+
+    /* ── Bottom Nav — z-index 500 so it always stays above the sheet ── */
+    #bottom-nav {
+      flex-shrink: 0; height: var(--nav-h); background: #fff;
+      border-top: 1px solid var(--border); display: flex; z-index: 500;
+    }
+    .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; color: var(--text-muted); font-size: 10px; font-weight: 600; transition: color 0.2s; -webkit-tap-highlight-color: transparent; border: none; background: none; }
+    .nav-item.active { color: var(--primary); }
+    .nav-icon { font-size: 22px; line-height: 1; }
+
+    /* ── Detail Sheet — at #app level, above main (z-index: 1) but below nav (z-index: 500) ── */
+    #detail-backdrop {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      bottom: var(--nav-h);
+      background: rgba(0,0,0,0.5);
+      z-index: 300; opacity: 0; pointer-events: none; transition: opacity 0.3s;
+    }
+    #detail-backdrop.visible { opacity: 1; pointer-events: all; }
+
+    #detail-sheet {
+      position: absolute;
+      left: 0; right: 0;
+      bottom: var(--nav-h);
+      height: 91%;
+      background: #fff; border-radius: 20px 20px 0 0;
+      z-index: 301; transform: translateY(100%);
+      transition: transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #detail-sheet.visible { transform: translateY(0); }
+
+    .sheet-handle-area { padding: 10px 0 6px; display: flex; justify-content: center; flex-shrink: 0; }
+    .sheet-handle-bar { width: 36px; height: 4px; background: #E0E0E0; border-radius: 2px; }
+    .sheet-close-btn { position: absolute; top: 14px; right: 16px; width: 32px; height: 32px; border-radius: 50%; background: rgba(0,0,0,0.08); border: none; cursor: pointer; font-size: 15px; color: var(--text-secondary); display: flex; align-items: center; justify-content: center; z-index: 10; }
+    #sheet-scroll { flex: 1; overflow-y: auto; }
+    .hero-img { width: 100%; height: 220px; object-fit: cover; display: block; background: #F0F0F0; }
+    .sheet-body { padding: 20px 16px 10px; }
+
+    .restaurant-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 5px; }
+    .restaurant-name { font-size: 22px; font-weight: 800; color: var(--text-primary); line-height: 1.2; }
+    .restaurant-rating { font-size: 14px; font-weight: 700; color: #FF8F00; white-space: nowrap; padding-top: 4px; }
+    .restaurant-meta { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+    .restaurant-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 22px; }
+
+    /* Menu list */
+    .menu-section { margin-bottom: 24px; }
+    .section-label { font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px; }
+    .menu-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+    .menu-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; font-size: 14px; }
+    .menu-row + .menu-row { border-top: 1px solid var(--border); }
+    .menu-row-name { color: var(--text-primary); font-weight: 500; }
+    .menu-row-price { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+
+    /* Benefits */
+    .benefits-header { margin-bottom: 12px; }
+    .benefits-title { font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 3px; }
+    .benefits-subtitle { font-size: 13px; color: var(--text-secondary); }
+    .benefit-cards { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+    .benefit-card { background: #FFF8F6; border: 1.5px solid #FFE0D5; border-radius: var(--radius-md); padding: 14px 16px; display: flex; align-items: center; gap: 14px; }
+    .benefit-card-icon { width: 50px; height: 50px; border-radius: 12px; background: #fff; border: 1px solid #FFE0D5; display: flex; align-items: center; justify-content: center; font-size: 28px; flex-shrink: 0; }
+    .benefit-card-info { flex: 1; min-width: 0; }
+    .benefit-card-name { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+    .benefit-card-desc { font-size: 12px; color: var(--text-secondary); margin-top: 3px; line-height: 1.4; }
+    .benefit-free-badge { background: var(--primary); color: #fff; font-size: 11px; font-weight: 800; padding: 4px 9px; border-radius: 8px; flex-shrink: 0; }
+
+    .condition-box { background: #F5F5F5; border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 28px; display: flex; align-items: flex-start; gap: 8px; }
+    .condition-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+    .condition-text { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+
+    /* Sheet footer */
+    .sheet-footer { padding: 12px 16px 16px; background: #fff; border-top: 1px solid var(--border); flex-shrink: 0; }
+
+    /* Timer */
+    .timer-box {
+      background: #FFF8E1; border: 1.5px solid #FFE082;
+      border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 10px;
+    }
+    .timer-box.urgent { background: #FFF3F0; border-color: #FFCCBC; }
+    .timer-top-row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .timer-label-text { font-size: 12px; font-weight: 600; color: #8D6E63; }
+    .timer-box.urgent .timer-label-text { color: var(--primary-dark); }
+    .timer-count-row { display: flex; align-items: baseline; gap: 5px; margin-bottom: 10px; }
+    .timer-count {
+      font-size: 28px; font-weight: 900; color: #E65100;
+      font-variant-numeric: tabular-nums; letter-spacing: -1px;
+    }
+    .timer-box.urgent .timer-count { color: var(--primary); }
+    .timer-suffix { font-size: 14px; font-weight: 700; color: #BF360C; }
+    .timer-bar-track { height: 6px; background: #FFE082; border-radius: 3px; overflow: hidden; }
+    .timer-box.urgent .timer-bar-track { background: #FFCCBC; }
+    .timer-bar-fill { height: 100%; background: linear-gradient(90deg, #FF8F00, #FFB300); border-radius: 3px; transition: width 1s linear; }
+    .timer-box.urgent .timer-bar-fill { background: linear-gradient(90deg, var(--primary), #FF8F00); }
+
+    .timer-expired-box {
+      background: #FFEBEE; border: 1.5px solid #EF9A9A;
+      border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .timer-expired-text { font-size: 13px; font-weight: 700; color: #C62828; }
+
+    .apply-btn { width: 100%; height: 52px; border-radius: var(--radius-md); background: var(--primary); color: #fff; font-size: 16px; font-weight: 700; border: none; cursor: pointer; transition: background 0.2s, transform 0.1s; }
+    .apply-btn:active { transform: scale(0.98); }
+    .apply-btn.applied { background: var(--success); cursor: default; }
+    .apply-btn:disabled { background: #BDBDBD; cursor: default; }
+
+    .cancel-visit-wrap { display: flex; justify-content: center; margin-top: 10px; }
+    .cancel-visit-btn { font-size: 13px; color: var(--text-muted); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 4px; }
+    .cancel-visit-btn:hover { color: var(--text-secondary); }
+
+    /* Toast */
+    #toast { position: absolute; bottom: calc(var(--nav-h) + 16px); left: 50%; transform: translateX(-50%) translateY(20px); background: #1A1A1A; color: #fff; padding: 12px 20px; border-radius: 24px; font-size: 14px; font-weight: 600; z-index: 600; transition: transform 0.3s, opacity 0.3s; opacity: 0; white-space: nowrap; pointer-events: none; }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    .leaflet-control-attribution { font-size: 9px; }
+
+    /* ── Owner Mode ── */
+    .owner-mode-bar {
+      background: #1A1A1A; color: #fff;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; font-size: 12px; font-weight: 600; flex-shrink: 0;
+    }
+    .owner-mode-bar-left { display: flex; align-items: center; gap: 6px; }
+    .owner-badge { background: var(--primary); border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 800; }
+    .owner-switch-back { font-size: 12px; color: #BDBDBD; background: none; border: 1px solid #444; border-radius: 20px; padding: 4px 10px; cursor: pointer; }
+
+    .owner-wrap { padding: 16px; }
+    .owner-restaurant-header {
+      background: #fff; border-radius: var(--radius-lg); padding: 16px;
+      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .owner-restaurant-icon { font-size: 32px; }
+    .owner-restaurant-name { font-size: 17px; font-weight: 800; color: var(--text-primary); }
+    .owner-restaurant-sub  { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+    .owner-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 10px; margin-bottom: 20px;
+    }
+    .owner-stat-card {
+      background: #fff; border-radius: var(--radius-md);
+      padding: 14px 12px; text-align: center; box-shadow: var(--shadow-sm);
+    }
+    .owner-stat-val { font-size: 22px; font-weight: 900; }
+    .owner-stat-val.pending  { color: #FF8F00; }
+    .owner-stat-val.approved { color: var(--success); }
+    .owner-stat-val.revenue  { color: var(--primary); }
+    .owner-stat-lbl { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+
+    .owner-section-title { font-size: 15px; font-weight: 800; color: var(--text-primary); margin-bottom: 12px; }
+
+    .request-card {
+      background: #fff; border-radius: var(--radius-md);
+      padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow-sm);
+    }
+    .request-card.approved-card { opacity: 0.65; }
+    .request-card.rejected-card { opacity: 0.45; }
+
+    .request-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .request-emoji { font-size: 24px; }
+    .request-info { flex: 1; }
+    .request-restaurant { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+    .request-detail    { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .request-time      { font-size: 11px; color: var(--text-muted); }
+    .request-status-badge {
+      font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 8px;
+    }
+    .badge-approved { background: #E8F5E9; color: var(--success); }
+    .badge-rejected { background: #F5F5F5; color: var(--text-muted); }
+
+    .request-actions { display: flex; gap: 8px; }
+    .btn-approve {
+      flex: 1; height: 40px; border-radius: var(--radius-sm);
+      background: var(--success); color: #fff;
+      font-size: 14px; font-weight: 700; border: none; cursor: pointer;
+    }
+    .btn-reject {
+      height: 40px; padding: 0 16px; border-radius: var(--radius-sm);
+      background: #F5F5F5; color: var(--text-secondary);
+      font-size: 14px; font-weight: 600; border: none; cursor: pointer;
+    }
+
+    .owner-switch-btn {
+      width: 100%; margin-top: 24px; height: 48px; border-radius: var(--radius-md);
+      background: #1A1A1A; color: #fff; font-size: 14px; font-weight: 700;
+      border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="app-logo">덤<span class="logo-en">Dum</span></div>
+    <div class="location-badge">📍 강남구 역삼동</div>
+  </header>
+
+  <main>
+    <div id="view-map" class="view active"><div id="map"></div></div>
+
+    <div id="view-list" class="view">
+      <div class="filter-row">
+        <div class="filter-chip active" data-filter="all"      onclick="filterBy(this)">전체</div>
+        <div class="filter-chip"        data-filter="distance" onclick="filterBy(this)">📍 가까운 순</div>
+        <div class="filter-chip"        data-filter="benefits" onclick="filterBy(this)">🎁 혜택 많은 순</div>
+        <div class="filter-chip"        data-filter="한식"     onclick="filterBy(this)">🥢 한식</div>
+        <div class="filter-chip"        data-filter="일식"     onclick="filterBy(this)">🍣 일식</div>
+        <div class="filter-chip"        data-filter="이탈리안" onclick="filterBy(this)">🍝 이탈리안</div>
+      </div>
+      <div class="restaurant-list" id="restaurant-list"></div>
+    </div>
+
+    <div id="view-profile" class="view">
+      <div id="profile-content"></div>
+    </div>
+  </main>
+
+  <!-- nav z-index: 500 — always above the sheet -->
+  <nav id="bottom-nav">
+    <button class="nav-item active" onclick="switchTab('map',  this)"><span class="nav-icon">🗺️</span><span>지도</span></button>
+    <button class="nav-item"        onclick="switchTab('list', this)"><span class="nav-icon">📋</span><span>리스트</span></button>
+    <button class="nav-item"        onclick="switchTab('profile', this)"><span class="nav-icon">👤</span><span>내 정보</span></button>
+  </nav>
+
+  <!-- backdrop & sheet at #app level, bottom = nav height — never covers nav -->
+  <div id="detail-backdrop" onclick="closeDetail()"></div>
+
+  <div id="detail-sheet">
+    <div class="sheet-handle-area"><div class="sheet-handle-bar"></div></div>
+    <button class="sheet-close-btn" onclick="closeDetail()">✕</button>
+    <div id="sheet-scroll">
+      <img id="hero-img" class="hero-img" src="" alt="">
+      <div class="sheet-body">
+        <div class="restaurant-title-row">
+          <div class="restaurant-name" id="detail-name"></div>
+          <div class="restaurant-rating" id="detail-rating"></div>
+        </div>
+        <div class="restaurant-meta"    id="detail-meta"></div>
+        <div class="restaurant-desc"    id="detail-desc"></div>
+
+        <div class="menu-section">
+          <div class="section-label">🍽️ 대표 메뉴</div>
+          <div class="menu-list" id="detail-menu-list"></div>
+        </div>
+
+        <div class="benefits-header">
+          <div class="benefits-title">🎁 무료 제공 혜택</div>
+          <div class="benefits-subtitle" id="detail-benefits-subtitle"></div>
+        </div>
+        <div class="benefit-cards" id="detail-benefit-cards"></div>
+
+        <div class="condition-box">
+          <span class="condition-icon">ℹ️</span>
+          <span class="condition-text" id="detail-condition"></span>
+        </div>
+      </div>
+    </div>
+    <div class="sheet-footer" id="sheet-footer">
+      <!-- Rendered by JS based on state -->
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// =============================================
+//  DATA
+// =============================================
+const RESTAURANTS = [
+  {
+    id: 1, name: "한우마루", category: "한식 · 한우구이", emoji: "🥩",
+    distance: 120, lat: 37.4988, lng: 127.0278,
+    image: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&h=500&fit=crop&auto=format",
+    description: "신선한 국내산 1++ 한우를 합리적인 가격에 즐길 수 있는 프리미엄 한우 전문점. 매일 새벽 직접 공수한 한우만 사용합니다.",
+    rating: 4.5, reviewCount: 128,
+    menu: [
+      { name: "한우 1++ 등심 구이 (100g)", price: "45,000원" },
+      { name: "한우 갈비살 (100g)",        price: "38,000원" },
+      { name: "한우 불고기 (200g)",         price: "32,000원" },
+      { name: "냉면",                        price: "13,000원" },
+    ],
+    benefits: [
+      { name: "육회 소",  description: "신선한 한우로 만든 육회 한 접시 (小)", icon: "🥩" },
+      { name: "감자전",   description: "바삭하게 부쳐낸 감자전 한 장",         icon: "🥞" },
+    ],
+    condition: "1인당 35,000원 이상 주문 시 1가지 선택 제공 · 1테이블 1회 한정"
+  },
+  {
+    id: 2, name: "스시료코", category: "일식 · 스시", emoji: "🍣",
+    distance: 260, lat: 37.5008, lng: 127.0258,
+    image: "https://images.unsplash.com/photo-1611143669185-af224c5e3252?w=800&h=500&fit=crop&auto=format",
+    description: "매일 아침 노량진에서 직접 공수한 제철 해산물로 만드는 정통 스시. 15년 경력의 장인이 손질합니다.",
+    rating: 4.8, reviewCount: 203,
+    menu: [
+      { name: "오마카세 코스 (12종)",  price: "85,000원" },
+      { name: "특선 모둠 스시 (10종)", price: "38,000원" },
+      { name: "도미 한 점",            price: "12,000원" },
+      { name: "사케 (720ml)",          price: "28,000원" },
+    ],
+    benefits: [
+      { name: "어시사리 전채",    description: "도미, 광어 등 오늘의 제철 생선 전채 2종",       icon: "🐟" },
+      { name: "사케 한 병 (小)", description: "차갑게 서브되는 순미 사케 한 병",               icon: "🍶" },
+    ],
+    condition: "2인 이상 · 인당 30,000원 이상 주문 시 제공 · 사전 예약 시 적용"
+  },
+  {
+    id: 3, name: "파스타리아", category: "이탈리안 · 파스타", emoji: "🍝",
+    distance: 390, lat: 37.4965, lng: 127.0305,
+    image: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&h=500&fit=crop&auto=format",
+    description: "이탈리아 현지 셰프가 직접 만드는 수제 생면 파스타 전문점. 직접 재배한 허브와 국내산 채소를 사용합니다.",
+    rating: 4.3, reviewCount: 87,
+    menu: [
+      { name: "트러플 크림 파스타", price: "26,000원" },
+      { name: "봉골레 비앙코",      price: "24,000원" },
+      { name: "해산물 뇨키",        price: "28,000원" },
+      { name: "글라스 와인",        price: "12,000원" },
+    ],
+    benefits: [
+      { name: "치즈 보드",        description: "파르미지아노·브리·고르곤졸라 3종 치즈 플레이트", icon: "🧀" },
+      { name: "화이트와인 한 잔", description: "요리와 잘 어울리는 이탈리아 화이트와인 글라스",  icon: "🥂" },
+    ],
+    condition: "2인 이상 · 메인 메뉴 2개 이상 주문 시 제공"
+  },
+  {
+    id: 4, name: "야키토리 이치방", category: "일식 · 이자카야", emoji: "🍢",
+    distance: 180, lat: 37.4978, lng: 127.0245,
+    image: "https://images.unsplash.com/photo-1529692236671-f1f6cf9683ba?w=800&h=500&fit=crop&auto=format",
+    description: "숯불에 직접 굽는 정통 야키토리 이자카야. 주류와 함께 즐기기 좋은 분위기 좋은 저녁 공간입니다.",
+    rating: 4.6, reviewCount: 174,
+    menu: [
+      { name: "모둠 야키토리 (6종)", price: "22,000원" },
+      { name: "대방어회 (소)",       price: "35,000원" },
+      { name: "교자 (6개)",          price: "9,000원"  },
+      { name: "생맥주",              price: "7,000원"  },
+    ],
+    benefits: [
+      { name: "닭날개 구이 (4개)", description: "비장의 양념으로 구운 겉바속촉 닭날개",      icon: "🍗" },
+      { name: "타코야키 (6개)",    description: "문어 가득한 오리지널 타코야키 한 판",        icon: "🐙" },
+    ],
+    condition: "인당 15,000원 이상 · 주류 1병 이상 주문 시 제공"
+  },
+  {
+    id: 5, name: "비노 와인바", category: "바 · 와인", emoji: "🍷",
+    distance: 210, lat: 37.5015, lng: 127.0295,
+    image: "https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=800&h=500&fit=crop&auto=format",
+    description: "소믈리에가 엄선한 100종 이상의 내추럴 와인을 즐길 수 있는 아늑한 와인바. 조용한 대화와 와인이 어울리는 공간입니다.",
+    rating: 4.7, reviewCount: 219,
+    menu: [
+      { name: "글라스 와인",          price: "12,000원~" },
+      { name: "보틀 와인",            price: "55,000원~" },
+      { name: "치즈 & 샤퀴테리 보드", price: "32,000원"  },
+      { name: "트러플 감자칩",        price: "9,000원"   },
+    ],
+    benefits: [
+      { name: "브루스케타 2종", description: "토마토·리코타 치즈를 올린 크리스피 브루스케타", icon: "🥖" },
+      { name: "하우스 와인 한 잔", description: "오늘의 하우스 레드 또는 화이트 중 선택",     icon: "🍷" },
+    ],
+    condition: "보틀 와인 1병 이상 주문 시 제공 · 2인 이상"
+  },
+  {
+    id: 6, name: "고기집 정육식당", category: "한식 · 삼겹살", emoji: "🥓",
+    distance: 310, lat: 37.4955, lng: 127.0262,
+    image: "https://images.unsplash.com/photo-1590301157890-4810ed352733?w=800&h=500&fit=crop&auto=format",
+    description: "정육점에서 직접 운영하는 고기집. 유통 마진 없이 당일 들어온 신선한 돼지고기만 사용합니다.",
+    rating: 4.5, reviewCount: 302,
+    menu: [
+      { name: "항정살 (180g)",   price: "18,000원" },
+      { name: "삼겹살 (180g)",   price: "16,000원" },
+      { name: "목살 (180g)",     price: "15,000원" },
+      { name: "소주",            price: "5,000원"  },
+    ],
+    benefits: [
+      { name: "육전",    description: "얇게 썬 한우 우둔살로 만든 고소한 육전 한 접시", icon: "🥩" },
+      { name: "파김치", description: "직접 담근 아삭하고 새콤한 파김치",               icon: "🌿" },
+    ],
+    condition: "2인분 이상 주문 시 1가지 선택 제공 · 주류 주문 필수"
+  },
+  {
+    id: 7, name: "마라탕 후시", category: "중식 · 마라탕", emoji: "🌶️",
+    distance: 450, lat: 37.5000, lng: 127.0318,
+    image: "https://images.unsplash.com/photo-1563245372-f21724e3856d?w=800&h=500&fit=crop&auto=format",
+    description: "정통 쓰촨 마라 향신료를 직접 수입해 사용하는 마라탕 전문점. 매운맛 1~5단계로 조절 가능합니다.",
+    rating: 4.4, reviewCount: 188,
+    menu: [
+      { name: "마라탕 (소)",       price: "13,000원" },
+      { name: "마라탕 (대)",       price: "18,000원" },
+      { name: "마라샹궈 (2인분)", price: "32,000원" },
+      { name: "딤섬 모둠 (4개)",  price: "8,000원"  },
+    ],
+    benefits: [
+      { name: "딤섬 모둠 (4개)", description: "새우·고기·부추 딤섬 각 1개씩 총 4개",    icon: "🥟" },
+      { name: "탕수육 (소)",     description: "바삭하고 새콤달콤한 탕수육 소 한 접시", icon: "🍖" },
+    ],
+    condition: "마라탕 또는 마라샹궈 2인분 이상 주문 시 1가지 선택 제공"
+  },
+  {
+    id: 8, name: "해물포차 바다마당", category: "포차 · 해산물", emoji: "🦞",
+    distance: 290, lat: 37.4970, lng: 127.0228,
+    image: "https://images.unsplash.com/photo-1559847844-5315695dadae?w=800&h=500&fit=crop&auto=format",
+    description: "매일 새벽 인천 연안부두에서 공수한 신선한 해산물을 포장마차 분위기 속에서 즐길 수 있는 곳입니다.",
+    rating: 4.6, reviewCount: 267,
+    menu: [
+      { name: "모둠 해물찜 (2인)", price: "38,000원" },
+      { name: "대게 (마리)",       price: "45,000원" },
+      { name: "해물파전",          price: "16,000원" },
+      { name: "막걸리",            price: "5,000원"  },
+    ],
+    benefits: [
+      { name: "골뱅이무침",    description: "쫄면 사리가 들어간 매콤한 골뱅이무침 한 접시", icon: "🐚" },
+      { name: "새우 소금구이", description: "왕새우 2마리를 소금에 굵게 구운 안주",          icon: "🦐" },
+    ],
+    condition: "모둠 해물찜 주문 시 1가지 선택 제공 · 주류 1병 이상"
+  },
+  {
+    id: 9, name: "갈비 명가", category: "한식 · 갈비", emoji: "🍖",
+    distance: 350, lat: 37.5020, lng: 127.0240,
+    image: "https://images.unsplash.com/photo-1568640347023-a616a30bc3bd?w=800&h=500&fit=crop&auto=format",
+    description: "30년 전통의 양념 비법으로 재운 LA갈비와 돼지 왕갈비 전문점. 저녁마다 줄 서서 먹는 동네 맛집입니다.",
+    rating: 4.8, reviewCount: 415,
+    menu: [
+      { name: "LA갈비 (200g)",   price: "32,000원" },
+      { name: "왕갈비 (200g)",   price: "28,000원" },
+      { name: "냉면",            price: "10,000원" },
+      { name: "된장찌개",        price: "7,000원"  },
+    ],
+    benefits: [
+      { name: "파전",     description: "파가 가득 들어간 바삭한 파전 한 장",           icon: "🫓" },
+      { name: "냉채족발", description: "얇게 썬 족발에 새콤한 냉채 소스를 곁들인 전채", icon: "🥗" },
+    ],
+    condition: "갈비류 2인분 이상 주문 시 1가지 선택 제공 · 1테이블 1회"
+  },
+  {
+    id: 10, name: "더 컷 스테이크", category: "양식 · 스테이크", emoji: "🥩",
+    distance: 500, lat: 37.4962, lng: 127.0320,
+    image: "https://images.unsplash.com/photo-1600891964092-4316c288032e?w=800&h=500&fit=crop&auto=format",
+    description: "드라이에이징 전문 정육점 출신 셰프가 직접 운영하는 스테이크 하우스. 28일 건식 숙성 안심·등심을 선보입니다.",
+    rating: 4.7, reviewCount: 143,
+    menu: [
+      { name: "드라이에이징 등심 (200g)", price: "68,000원" },
+      { name: "안심 스테이크 (180g)",    price: "72,000원" },
+      { name: "트러플 리조또",           price: "28,000원" },
+      { name: "레드와인 (글라스)",       price: "15,000원" },
+    ],
+    benefits: [
+      { name: "시저 샐러드",     description: "직접 만든 드레싱의 클래식 시저 샐러드",         icon: "🥗" },
+      { name: "사워도우 브레드", description: "버터와 함께 서브되는 직접 구운 사워도우 한 조각", icon: "🍞" },
+    ],
+    condition: "스테이크 1인분 이상 주문 시 1가지 선택 제공 · 예약 우선 적용"
+  }
+];
+
+// =============================================
+//  STATE
+// =============================================
+let appliedHistory = [];
+let currentRestaurant = null;
+let leafletMap = null;
+let profileState = 'loggedOut'; // 'loggedOut' | 'login' | 'signup' | 'loggedIn'
+let loggedInUser = null;
+let isOwnerMode = false;
+
+let ownerRequests = [
+  { id: 'o1', visitor: '김**', benefit: '어시사리 전채',    restaurantName: '스시료코',       emoji: '🍣', time: '5분 전',  status: 'pending'  },
+  { id: 'o2', visitor: '이**', benefit: '하우스 와인 한 잔', restaurantName: '비노 와인바',     emoji: '🍷', time: '11분 전', status: 'approved' },
+  { id: 'o3', visitor: '박**', benefit: '닭날개 구이 (4개)', restaurantName: '야키토리 이치방', emoji: '🍢', time: '18분 전', status: 'approved' },
+  { id: 'o4', visitor: '최**', benefit: '육전',             restaurantName: '고기집 정육식당', emoji: '🥓', time: '27분 전', status: 'rejected' },
+  { id: 'o5', visitor: '정**', benefit: '시저 샐러드',       restaurantName: '더 컷 스테이크', emoji: '🥩', time: '35분 전', status: 'pending'  },
+];
+let ownerReqCounter = 100;
+
+// Timer: one per restaurant { expiryTime, intervalId }
+const VISIT_DURATION = 3600; // seconds
+const activeTimers = {};     // { [restaurantId]: { expiryTime, intervalId } }
+
+// =============================================
+//  MAP
+// =============================================
+function initMap() {
+  leafletMap = L.map('map', { center: [37.4988, 127.0278], zoom: 15, zoomControl: false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', maxZoom: 19, subdomains: 'abcd'
+  }).addTo(leafletMap);
+  L.circleMarker([37.4988, 127.0278], {
+    radius: 9, fillColor: '#4285F4', color: '#fff', weight: 3, fillOpacity: 1
+  }).addTo(leafletMap).bindTooltip('내 위치');
+  RESTAURANTS.forEach(addMarker);
+}
+
+function addMarker(r) {
+  const icon = L.divIcon({
+    html: `<div class="mk-wrap"><div class="mk-circle">${r.emoji}</div><div class="mk-pin"></div><div class="mk-label">${r.name}</div></div>`,
+    className: '', iconAnchor: [23, 62], iconSize: [46, 62]
+  });
+  L.marker([r.lat, r.lng], { icon }).addTo(leafletMap).on('click', () => openDetail(r));
+}
+
+// =============================================
+//  TABS
+// =============================================
+function switchTab(tab, el) {
+  closeDetail();
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('view-' + tab).classList.add('active');
+  el.classList.add('active');
+  if (tab === 'map')     setTimeout(() => leafletMap && leafletMap.invalidateSize(), 100);
+  if (tab === 'list')    renderList(RESTAURANTS);
+  if (tab === 'profile') renderProfile();
+}
+
+// =============================================
+//  LIST
+// =============================================
+function renderList(list) {
+  document.getElementById('restaurant-list').innerHTML = list.map(r => {
+    const dist = r.distance < 1000 ? r.distance + 'm' : (r.distance / 1000).toFixed(1) + 'km';
+    return `<div class="restaurant-card" onclick="openDetail(RESTAURANTS.find(x=>x.id===${r.id}))">
+      <img class="card-img" src="${r.image}" alt="${r.name}" loading="lazy">
+      <div class="card-body">
+        <div class="card-header"><div class="card-name">${r.name}</div><div class="card-distance">${dist}</div></div>
+        <div class="card-meta">${r.category} · ⭐ ${r.rating} (${r.reviewCount})</div>
+        <div class="card-benefits">${r.benefits.map(b => `<div class="benefit-tag">${b.icon} ${b.name}</div>`).join('')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterBy(el) {
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  const type = el.dataset.filter;
+  let result = [...RESTAURANTS];
+  if      (type === 'distance') result.sort((a, b) => a.distance - b.distance);
+  else if (type === 'benefits') result.sort((a, b) => b.benefits.length - a.benefits.length);
+  else if (type !== 'all')      result = result.filter(r => r.category.includes(type));
+  renderList(result);
+}
+
+// =============================================
+//  DETAIL SHEET
+// =============================================
+function openDetail(r) {
+  if (!r) return;
+  currentRestaurant = r;
+
+  document.getElementById('hero-img').src = r.image;
+  document.getElementById('detail-name').textContent = r.name;
+  document.getElementById('detail-rating').innerHTML =
+    `⭐ ${r.rating} <span style="color:var(--text-muted);font-weight:400">(${r.reviewCount})</span>`;
+  const dist = r.distance < 1000 ? r.distance + 'm' : (r.distance / 1000).toFixed(1) + 'km';
+  document.getElementById('detail-meta').textContent = `${r.category} · 📍 ${dist} 거리`;
+  document.getElementById('detail-desc').textContent = r.description;
+  document.getElementById('detail-benefits-subtitle').textContent = `총 ${r.benefits.length}가지 혜택을 무료로 제공합니다`;
+  document.getElementById('detail-condition').textContent = r.condition;
+  document.getElementById('detail-menu-list').innerHTML = r.menu.map(m =>
+    `<div class="menu-row"><span class="menu-row-name">${m.name}</span><span class="menu-row-price">${m.price}</span></div>`
+  ).join('');
+  document.getElementById('detail-benefit-cards').innerHTML = r.benefits.map(b =>
+    `<div class="benefit-card">
+      <div class="benefit-card-icon">${b.icon}</div>
+      <div class="benefit-card-info"><div class="benefit-card-name">${b.name}</div><div class="benefit-card-desc">${b.description}</div></div>
+      <div class="benefit-free-badge">FREE</div>
+    </div>`
+  ).join('');
+
+  renderFooter(r.id);
+
+  document.getElementById('detail-backdrop').classList.add('visible');
+  document.getElementById('detail-sheet').classList.add('visible');
+  document.getElementById('sheet-scroll').scrollTop = 0;
+}
+
+function closeDetail() {
+  document.getElementById('detail-backdrop').classList.remove('visible');
+  document.getElementById('detail-sheet').classList.remove('visible');
+}
+
+// =============================================
+//  FOOTER RENDERER (apply state + timer)
+// =============================================
+function renderFooter(restaurantId) {
+  const footer = document.getElementById('sheet-footer');
+  const timer  = activeTimers[restaurantId];
+  const wasApplied = appliedHistory.some(h => h.restaurantId === restaurantId);
+
+  if (!wasApplied) {
+    footer.innerHTML = `<button class="apply-btn" onclick="applyBenefit()">방문 신청하기</button>`;
+    return;
+  }
+
+  // Determine timer state
+  const remaining = timer ? Math.max(0, Math.floor((timer.expiryTime - Date.now()) / 1000)) : 0;
+  const expired = !timer || remaining === 0;
+
+  const timerHtml = expired
+    ? `<div class="timer-expired-box"><span>❌</span><span class="timer-expired-text">방문 가능 시간이 지났어요</span></div>`
+    : buildTimerHtml(remaining);
+
+  footer.innerHTML = `
+    ${timerHtml}
+    <button class="apply-btn applied" disabled>방문 신청 완료 ✓</button>
+    <div class="cancel-visit-wrap">
+      <button class="cancel-visit-btn" onclick="cancelVisit()">방문 취소하기</button>
+    </div>`;
+}
+
+function buildTimerHtml(remaining) {
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const pct  = (remaining / VISIT_DURATION) * 100;
+  const urgent = remaining < 600; // under 10 min
+  return `
+    <div class="timer-box${urgent ? ' urgent' : ''}" id="timer-box">
+      <div class="timer-top-row"><span>⏰</span><span class="timer-label-text">방문 가능 시간이 남아 있어요</span></div>
+      <div class="timer-count-row">
+        <span class="timer-count" id="timer-count">${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}</span>
+        <span class="timer-suffix">남았어요</span>
+      </div>
+      <div class="timer-bar-track"><div class="timer-bar-fill" id="timer-bar" style="width:${pct}%"></div></div>
+    </div>`;
+}
+
+// =============================================
+//  APPLY / CANCEL
+// =============================================
+function applyBenefit() {
+  if (!currentRestaurant) return;
+  const r = currentRestaurant;
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}. ${now.getMonth() + 1}. ${now.getDate()}`;
+
+  r.benefits.forEach(b => appliedHistory.push({
+    restaurantId: r.id, restaurantName: r.name, restaurantEmoji: r.emoji,
+    benefitName: b.name, benefitIcon: b.icon, date: dateStr
+  }));
+
+  // Add to owner request queue
+  ownerRequests.unshift({
+    id: 'u' + ownerReqCounter++,
+    visitor: loggedInUser ? loggedInUser.name.charAt(0) + '**' : '익명',
+    benefit: r.benefits[0].name,
+    restaurantName: r.name,
+    emoji: r.emoji,
+    time: '방금 전',
+    status: 'pending'
+  });
+
+  // Start countdown timer
+  const expiryTime = Date.now() + VISIT_DURATION * 1000;
+  const intervalId = setInterval(() => tickTimer(r.id), 1000);
+  activeTimers[r.id] = { expiryTime, intervalId };
+
+  renderFooter(r.id);
+  showToast(`🎉 ${r.name} 방문 신청 완료! 1시간 내에 방문하세요`);
+}
+
+function cancelVisit() {
+  if (!currentRestaurant) return;
+  const id = currentRestaurant.id;
+
+  appliedHistory = appliedHistory.filter(h => h.restaurantId !== id);
+  if (activeTimers[id]) {
+    clearInterval(activeTimers[id].intervalId);
+    delete activeTimers[id];
+  }
+  renderFooter(id);
+  showToast('방문 신청이 취소되었어요');
+}
+
+function tickTimer(restaurantId) {
+  const timer = activeTimers[restaurantId];
+  if (!timer) return;
+
+  const remaining = Math.max(0, Math.floor((timer.expiryTime - Date.now()) / 1000));
+
+  // If sheet is open for this restaurant, update DOM in-place (avoid re-render flicker)
+  if (currentRestaurant && currentRestaurant.id === restaurantId &&
+      document.getElementById('detail-sheet').classList.contains('visible')) {
+    const countEl = document.getElementById('timer-count');
+    const barEl   = document.getElementById('timer-bar');
+    const boxEl   = document.getElementById('timer-box');
+
+    if (remaining === 0) {
+      // Expired — re-render footer fully
+      clearInterval(timer.intervalId);
+      delete activeTimers[restaurantId];
+      renderFooter(restaurantId);
+      return;
+    }
+
+    if (countEl) {
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      countEl.textContent = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
+    }
+    if (barEl) {
+      barEl.style.width = (remaining / VISIT_DURATION * 100) + '%';
+    }
+    if (boxEl && remaining < 600 && !boxEl.classList.contains('urgent')) {
+      boxEl.classList.add('urgent');
+    }
+  }
+
+  if (remaining === 0 && activeTimers[restaurantId]) {
+    clearInterval(activeTimers[restaurantId].intervalId);
+    delete activeTimers[restaurantId];
+  }
+}
+
+// =============================================
+//  PROFILE
+// =============================================
+function renderProfile() {
+  const container = document.getElementById('profile-content');
+
+  if (profileState === 'loggedOut') {
+    container.innerHTML = `
+      <div class="auth-wrap">
+        <div class="auth-illust">🍽️</div>
+        <div class="auth-title">로그인하고 혜택 받기</div>
+        <div class="auth-subtitle">로그인하면 방문 기록과 받은 혜택을<br>언제든지 확인할 수 있어요.</div>
+        <div class="auth-form">
+          <button class="auth-btn-primary"   onclick="profileState='login';renderProfile()">로그인</button>
+          <div class="auth-divider">또는</div>
+          <button class="auth-btn-secondary" onclick="profileState='signup';renderProfile()">회원가입</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (profileState === 'login') {
+    container.innerHTML = `
+      <div class="auth-wrap">
+        <div class="auth-illust">👋</div>
+        <div class="auth-title">다시 오셨군요!</div>
+        <div class="auth-subtitle">이메일과 비밀번호로 로그인하세요.</div>
+        <div class="auth-form">
+          <input class="auth-input" id="login-email"    type="email"    placeholder="이메일">
+          <input class="auth-input" id="login-password" type="password" placeholder="비밀번호">
+          <button class="auth-btn-primary" onclick="doLogin()">로그인</button>
+        </div>
+        <div class="auth-switch-row">
+          <span class="auth-switch-label">아직 계정이 없으신가요?</span>
+          <button class="auth-switch-link" onclick="profileState='signup';renderProfile()">회원가입</button>
+        </div>
+        <div class="auth-switch-row" style="margin-top:6px">
+          <button class="auth-switch-link" onclick="profileState='loggedOut';renderProfile()" style="color:var(--text-muted)">← 뒤로</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (profileState === 'signup') {
+    container.innerHTML = `
+      <div class="auth-wrap">
+        <div class="auth-illust">🎉</div>
+        <div class="auth-title">덤 회원가입</div>
+        <div class="auth-subtitle">가입하고 주변 식당의 무료 혜택을 받아보세요.</div>
+        <div class="auth-form">
+          <input class="auth-input" id="signup-name"     type="text"     placeholder="이름">
+          <input class="auth-input" id="signup-email"    type="email"    placeholder="이메일">
+          <input class="auth-input" id="signup-password" type="password" placeholder="비밀번호 (8자 이상)">
+          <input class="auth-input" id="signup-confirm"  type="password" placeholder="비밀번호 확인">
+          <button class="auth-btn-primary" onclick="doSignup()">회원가입</button>
+        </div>
+        <div class="auth-switch-row">
+          <span class="auth-switch-label">이미 계정이 있으신가요?</span>
+          <button class="auth-switch-link" onclick="profileState='login';renderProfile()">로그인</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  // loggedIn — owner mode
+  if (isOwnerMode) { renderOwnerDashboard(container); return; }
+
+  // loggedIn — user mode
+  const unique     = new Set(appliedHistory.map(h => h.restaurantId));
+  const totalSaved = appliedHistory.length * 4500;
+  container.innerHTML = `
+    <div class="profile-header">
+      <div class="profile-user">
+        <div class="avatar">😊</div>
+        <div class="user-info"><h2>${loggedInUser.name} 님</h2><p>${loggedInUser.email}</p></div>
+        <button class="logout-btn" onclick="doLogout()">로그아웃</button>
+      </div>
+      <div class="stats-row">
+        <div class="stat-item"><div class="stat-value">${appliedHistory.length}</div><div class="stat-label">받은 혜택</div></div>
+        <div class="stat-item"><div class="stat-value">${unique.size}</div><div class="stat-label">방문 식당</div></div>
+        <div class="stat-item"><div class="stat-value">${totalSaved > 0 ? totalSaved.toLocaleString() + '원' : '0원'}</div><div class="stat-label">절약 금액</div></div>
+      </div>
+    </div>
+    <div class="history-section">
+      <div class="section-title">받은 혜택 목록</div>
+      ${appliedHistory.length === 0
+        ? `<div class="history-empty"><span class="empty-icon">🍽️</span>아직 받은 혜택이 없어요<br>주변 식당을 찾아 방문 신청해보세요!</div>`
+        : [...appliedHistory].reverse().map(h => `
+            <div class="history-card">
+              <div class="history-icon">${h.benefitIcon}</div>
+              <div class="history-info"><div class="history-menu">${h.benefitName}</div><div class="history-restaurant">${h.restaurantEmoji} ${h.restaurantName}</div></div>
+              <div class="history-right"><div class="history-date">${h.date}</div><div class="history-badge">무료 제공</div></div>
+            </div>`).join('')
+      }
+      <button class="owner-switch-btn" onclick="isOwnerMode=true;renderProfile()">🏪 사장님 계정으로 전환하기</button>
+    </div>`;
+}
+
+// =============================================
+//  OWNER DASHBOARD
+// =============================================
+function renderOwnerDashboard(container) {
+  const pending  = ownerRequests.filter(r => r.status === 'pending');
+  const approved = ownerRequests.filter(r => r.status === 'approved');
+  const rejected = ownerRequests.filter(r => r.status === 'rejected');
+  const revenue  = approved.length * 18000;
+
+  container.innerHTML = `
+    <div class="owner-mode-bar">
+      <div class="owner-mode-bar-left"><span class="owner-badge">사장님 모드</span><span>덤 파트너 대시보드</span></div>
+      <button class="owner-switch-back" onclick="isOwnerMode=false;renderProfile()">← 고객으로 전환</button>
+    </div>
+    <div class="owner-wrap">
+      <div class="owner-restaurant-header">
+        <div class="owner-restaurant-icon">🏪</div>
+        <div>
+          <div class="owner-restaurant-name">한우마루</div>
+          <div class="owner-restaurant-sub">강남구 역삼동 · 한식 · 한우구이</div>
+        </div>
+      </div>
+
+      <div class="owner-stats">
+        <div class="owner-stat-card">
+          <div class="owner-stat-val pending">${pending.length}</div>
+          <div class="owner-stat-lbl">승인 대기</div>
+        </div>
+        <div class="owner-stat-card">
+          <div class="owner-stat-val approved">${approved.length}</div>
+          <div class="owner-stat-lbl">오늘 승인</div>
+        </div>
+        <div class="owner-stat-card">
+          <div class="owner-stat-val revenue">${revenue > 0 ? (revenue / 10000).toFixed(0) + '만원' : '0원'}</div>
+          <div class="owner-stat-lbl">추가 매출 추정</div>
+        </div>
+      </div>
+
+      <div class="owner-section-title">📋 방문 신청 내역</div>
+      ${ownerRequests.map(r => `
+        <div class="request-card ${r.status === 'approved' ? 'approved-card' : r.status === 'rejected' ? 'rejected-card' : ''}">
+          <div class="request-top">
+            <div class="request-emoji">${r.emoji}</div>
+            <div class="request-info">
+              <div class="request-restaurant">${r.restaurantName} · ${r.visitor} 님</div>
+              <div class="request-detail">🎁 ${r.benefit}</div>
+            </div>
+            <div>
+              <div class="request-time">${r.time}</div>
+              ${r.status === 'approved' ? `<div class="request-status-badge badge-approved" style="margin-top:4px">승인됨</div>` : ''}
+              ${r.status === 'rejected' ? `<div class="request-status-badge badge-rejected" style="margin-top:4px">거절됨</div>` : ''}
+            </div>
+          </div>
+          ${r.status === 'pending' ? `
+            <div class="request-actions">
+              <button class="btn-approve" onclick="ownerDecide('${r.id}','approved')">✓ 승인하기</button>
+              <button class="btn-reject"  onclick="ownerDecide('${r.id}','rejected')">거절</button>
+            </div>` : ''}
+        </div>`).join('')}
+    </div>`;
+}
+
+function ownerDecide(id, decision) {
+  const req = ownerRequests.find(r => r.id === id);
+  if (!req) return;
+  req.status = decision;
+  renderOwnerDashboard(document.getElementById('profile-content'));
+  showToast(decision === 'approved' ? `✅ ${req.visitor} 님 방문을 승인했어요` : `${req.visitor} 님 요청을 거절했어요`);
+}
+
+function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pw    = document.getElementById('login-password').value;
+  if (!email || !pw) { showToast('이메일과 비밀번호를 입력해주세요'); return; }
+  loggedInUser = { name: email.split('@')[0], email };
+  profileState = 'loggedIn'; renderProfile();
+  showToast('로그인 되었어요! 환영합니다 🎉');
+}
+
+function doSignup() {
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const pw    = document.getElementById('signup-password').value;
+  const cfm   = document.getElementById('signup-confirm').value;
+  if (!name || !email || !pw) { showToast('모든 항목을 입력해주세요'); return; }
+  if (pw.length < 8)          { showToast('비밀번호는 8자 이상이어야 해요'); return; }
+  if (pw !== cfm)             { showToast('비밀번호가 일치하지 않아요'); return; }
+  loggedInUser = { name, email };
+  profileState = 'loggedIn'; renderProfile();
+  showToast(`${name}님, 가입을 환영해요! 🎉`);
+}
+
+function doLogout() {
+  loggedInUser = null; profileState = 'loggedOut'; renderProfile();
+  showToast('로그아웃 되었어요');
+}
+
+// =============================================
+//  TOAST
+// =============================================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// =============================================
+//  INIT
+// =============================================
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  renderList(RESTAURANTS);
+  renderProfile();
+});
+</script>
+</body>
+</html>
